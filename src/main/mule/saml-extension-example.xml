@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<mule xmlns:saml="http://www.mulesoft.org/schema/mule/saml"
+	xmlns:ee="http://www.mulesoft.org/schema/mule/ee/core" xmlns:http="http://www.mulesoft.org/schema/mule/http"
+	xmlns="http://www.mulesoft.org/schema/mule/core"
+	xmlns:doc="http://www.mulesoft.org/schema/mule/documentation" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="
+http://www.mulesoft.org/schema/mule/ee/core http://www.mulesoft.org/schema/mule/ee/core/current/mule-ee.xsd http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd
+http://www.mulesoft.org/schema/mule/http http://www.mulesoft.org/schema/mule/http/current/mule-http.xsd
+http://www.mulesoft.org/schema/mule/saml http://www.mulesoft.org/schema/mule/saml/current/mule-saml.xsd">
+	<http:listener-config name="HTTP_Listener_config" doc:name="HTTP Listener config" doc:id="f77c88e7-21ef-476a-ae42-b9d46014a064" >
+		<http:listener-connection host="0.0.0.0" port="8081" />
+	</http:listener-config>
+	<configuration-properties doc:name="Configuration properties" doc:id="3e6505f5-d1ba-4eb9-8cc5-ea758031ced3" file="config.properties.yaml" />
+	<saml:config name="SAML_Config" algType="RS256" doc:name="SAML Config" doc:id="dda427d3-1a65-4b0f-9d2f-5a42e09634ed" keyStorePath="#[p('truststore.path')]" keyStorePassword="#[p('truststore.password')]" keyName="#[p('truststore.alias')]" />
+	<flow name="saml-extension-exampleFlow" doc:id="2795ee81-536c-4548-a57f-9ea4c68dedab" >
+		<http:listener doc:name="Listener" doc:id="e9eae3a7-a41d-4c22-8b31-484e9ac70168" config-ref="HTTP_Listener_config" path="/test"/>
+		<set-variable value="#[false]" doc:name="getSAMLResponse - false" doc:id="3f3a6683-83af-4b71-be05-75e87fb22f6c" variableName="getSAMLResponse" />
+		<try doc:name="Try" doc:id="f32fbc83-e6b2-4f73-9ddf-82645c4456ad" >
+			<set-variable value="#[output application/java --- payload.SAMLResponse]" doc:name="SAMLResponse" doc:id="0383198d-fe7e-4dad-80d3-5ee40b2f8eff" variableName="SAMLResponse" />
+			<error-handler >
+				<on-error-continue enableNotifications="true" logException="true" doc:name="On Error Continue" doc:id="667842ff-86db-49a7-b4ea-f81ecf6b5339" type="ANY">
+					<logger level="INFO" doc:name="Logger" doc:id="7ec5ce46-1a20-4b1a-b7d4-36be67ff3ae7" message="User has not validated with IdP"/>
+					<set-variable value="true" doc:name="getSAMLResponse - true" doc:id="dc8d8529-0939-4e98-a362-ca911bc25a22" variableName="getSAMLResponse"/>
+				</on-error-continue>
+			</error-handler>
+		</try>
+		<choice doc:name="Choice" doc:id="834428c5-ce95-47a4-8338-be0f0a8dc030" >
+			<when expression="#[vars.getSAMLResponse]">
+				<saml:generate-auth-n-request doc:name="Generate AuthNRequest" doc:id="027c32d3-5d31-4b00-bc53-0d7d403b440d" assertionConsumerServiceUrl="#[p('sp.acsUrl')]" issuerId="#[p('sp.entityId')]" destinationUrl="#[p('idp.loginUrl')]" providerName="#[p('sp.providerName')]"/>
+				<http:request method="POST" doc:name="IdP POST Endpoint" doc:id="f29e265d-454e-4df6-8a1e-b8bad33c2f78" url="#[p('idp.postEndpoint')]">
+			<http:body><![CDATA[#[output application/x-www-form-urlencoded
+---
+{
+	"SAMLRequest": payload,
+	"RelayState": "/"
+}]]]></http:body>
+		</http:request>
+			</when>
+			<otherwise>
+				<saml:validate-saml-response doc:name="Validate SAMLResponse" doc:id="8da05196-f169-4385-80db-023adfaa6908" config-ref="SAML_Config" samlResponse="#[vars.SAMLResponse]"/>
+				<ee:transform doc:name="Transform Message" doc:id="43d80218-8681-4616-84f3-cae2fed6f900">
+			<ee:message>
+				<ee:set-payload><![CDATA[%dw 2.0
+output application/json
+---
+payload]]></ee:set-payload>
+			</ee:message>
+		</ee:transform>
+			</otherwise>
+		</choice>
+	</flow>
+</mule>
